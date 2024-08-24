@@ -3,10 +3,13 @@ import requests
 
 class LoanChatBot:
     def __init__(self):
-        self.api_key = os.getenv("GEMINI_API_KEY") 
+        self.api_key = os.getenv("GEMINI_API_KEY")
+        if not self.api_key:
+            raise ValueError("API Key is not set. Please set the GEMINI_API_KEY environment variable.")
         self.loan_type = None
         self.employment_status = None
-        self.gemini_api_endpoint = "https://api.gemini.google.com/v1/generateText"  # Replace with actual endpoint
+        self.cibil_score = None
+        self.user_details = {}
 
     def start(self):
         print("Hi, I am the LendBot and will help you with your loan concerns. How may I help you today?")
@@ -23,18 +26,74 @@ class LoanChatBot:
             self.inquire_employment_status()
 
     def inquire_employment_status(self):
-        if not self.employment_status:
-            self.employment_status = input("What is your employment status? ")
-        self.confirmation_and_search()
+        self.employment_status = input("What is your employment status? Salaried/Self Employed/Unemployed/Student: ").strip().lower()
 
-    def confirmation_and_search(self):
-        print(f"Loan Type: {self.loan_type}")
-        print(f"Employment Status: {self.employment_status}")
-        confirm = input("Is this information correct? (yes/no): ").strip().lower()
-        if confirm == "yes":
+        if self.employment_status == "salaried":
+            self.user_details['net_income'] = input("Please enter your net monthly income: ")
+            self.user_details['current_obligations'] = input("Do you have any current financial obligations (e.g., EMIs)? ")
+
+        elif self.employment_status == "self employed":
+            self.user_details['monthly_gross_income'] = input("Please enter your monthly gross income: ")
+            self.user_details['type_of_business'] = input("What type of business do you run? ")
+            self.user_details['location'] = input("Where are you located? ")
+            self.user_details['business_proof_doc'] = input("Do you have a valid business proof document? (Yes/No): ")
+            self.user_details['bank_statement'] = input("Can you provide your banking statement for the last 1 year? (Yes/No): ")
+            self.user_details['itrs'] = input("Do you have ITRs for the past 2 years? (yes/no): ")
+            self.user_details['current_obligations'] = input("Do you have any current financial obligations (e.g., EMIs)? ")
+
+        elif self.employment_status == "unemployed":
+            self.user_details['unemployment_reason'] = input("Please specify the reason for unemployment (e.g., recent layoff, health issues, etc.): ")
+            self.user_details['savings'] = input("Do you have any savings or investments? (Yes/No): ")
+
+        elif self.employment_status == "student":
+            self.user_details['institution'] = input("Please enter the name of your educational institution: ")
+            self.user_details['course'] = input("What course are you pursuing? ")
+            self.user_details['current_funding'] = input("How are you funding your studies currently? (e.g., Family support, Scholarships, Part-time job): ")
+
+        self.cibil_score = int(input("Please enter your CIBIL score: "))
+        self.evaluate_eligibility()
+
+    def evaluate_eligibility(self):
+        if self.cibil_score >= 650:
+            print("You are eligible for the loan. Proceeding to search for banks...")
             self.search_banks(self.loan_type)
         else:
-            self.start()
+            print("Your CIBIL score is less than 650. Let's explore alternative loan solutions.")
+            self.inquire_additional_loan_options()
+
+    def inquire_additional_loan_options(self):
+        add_family_member = input("Do you have any additional earning family members who can be added as co-applicants? (yes/no): ").strip().lower()
+
+        if add_family_member == "yes":
+            family_member_details = {}
+            family_member_details['relation'] = input("What is your relation with the family member? ")
+            family_member_details['employment_status'] = input("What is their employment status? (Salaried/Self Employed): ").strip().lower()
+
+            if family_member_details['employment_status'] == "salaried":
+                family_member_details['net_income'] = input("Please enter their net monthly income: ")
+                
+
+            elif family_member_details['employment_status'] == "self employed":
+                family_member_details['monthly_gross_income'] = input("Please enter their monthly gross income: ")
+                family_member_details['type_of_business'] = input("What type of business do they run? ")
+                family_member_details['location'] = input("Where are they located? ")
+                family_member_details['business_proof_doc'] = input("Do they have a valid business proof document? (yes/no): ")
+                family_member_details['bank_statement'] = input("Can they provide their banking statement for the last 1 year? (yes/no): ")
+                family_member_details['itrs'] = input("Do they have ITRs for the past 2 years? (yes/no): ")
+
+            print(f"Collected co-applicant details: {family_member_details}")
+
+        add_collateral = input("Do you have any collateral (e.g., property, gold)? (Yes/No): ").strip().lower()
+
+        if add_collateral == "yes":
+            collateral_value = int(input("Please enter the estimated market value of the collateral: "))
+            loan_amount = collateral_value * 0.65
+            print(f"You can get a loan amount of up to 65% of the collateral value, which is approximately {loan_amount}.")
+        else:
+            print("No collateral details provided.")
+
+        print("Now, let's search for banks that offer alternative loan solutions.")
+        self.search_banks(self.loan_type)
 
     def classify_loan_type(self, user_input):
         keywords_to_loan_type = {
@@ -45,7 +104,8 @@ class LoanChatBot:
             "mutual funds": "Loan Against Mutual Funds and Shares",
             "fixed deposit": "Loan Against Fixed Deposit",
             "personal": "Personal Loan",
-            "business": "Short Term Business Loan"
+            "business": "Business Loan",
+            "education" : "Education Loan"
         }
         for keyword, loan_type in keywords_to_loan_type.items():
             if keyword in user_input.lower():
@@ -54,40 +114,39 @@ class LoanChatBot:
 
     def search_banks(self, category):
         print(f"Searching for banks that offer {category}...")
-        results = self.llm_search(category) 
-        print("Here are some banks that might match your criteria:")
+        results = self.llm_search(category)
         if results:
+            print("Here are some banks that might match your criteria:")
             for result in results:
                 print(f"- {result}")
         else:
             print("No relevant results found. Please try again or refine your search.")
 
     def llm_search(self, category):
-        # 1. Prepare Prompt for Gemini: 
-        prompt = f"A user is looking for a {category}. What are some banks or financial institutions that typically offer {category}s?" 
+        prompt = f"A user is looking for a {category}. What are some banks or financial institutions that typically offer {category}s?"
 
-        # 2. Make API Call (replace with actual Gemini API call)
         headers = {
             "Authorization": f"Bearer {self.api_key}"
         }
         data = {
             "prompt": prompt,
-            # ... other parameters like temperature, max_tokens, etc.
         }
-        response = requests.post(self.gemini_api_endpoint, headers=headers, json=data) 
 
-        # 3. Process the Response
-        if response.status_code == 200:
+        try:
+            response = requests.post(self.gemini_api_endpoint, headers=headers, json=data)
+            response.raise_for_status()
             response_data = response.json()
-            # Extract the generated text (bank names) from Gemini's response
-            generated_text = response_data['choices'][0]['text'] # Assuming Gemini's response structure
-            # Split the generated text into a list of banks
-            banks = generated_text.split('\n') 
-            return banks 
-        else:
-            print("Error communicating with the LLM API.")
+
+            generated_text = response_data.get('choices', [{}])[0].get('text', '')
+            banks = [bank.strip() for bank in generated_text.split('\n') if bank.strip()]
+            return banks
+        except requests.exceptions.RequestException as e:
+            print(f"Error communicating with the LLM API: {e}")
             return None
 
 if __name__ == "__main__":
-    bot = LoanChatBot()
-    bot.start()
+    try:
+        bot = LoanChatBot()
+        bot.start()
+    except ValueError as ve:
+        print(ve)
